@@ -3,33 +3,64 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
+import csv
 
 # ==== Config & Hyperparams ====
-ALPHA = 0.5
-BETA = 10.0
-GAMMA = 10.0
-ETA = 10.0
+ALPHA = 0.8
+BETA = 0.1
+GAMMA = 0.1
+ETA = 0.001
 R_MIN = 1.0
 P_MAX = 800.0
 EPOCHS = 5
-BATCH_SIZE = 10
+BATCH_SIZE = 1
 K = 10 # Jumlah User Terminals (UT)
+
+# define log file
+log_file = "training_log.csv"
+fieldnames = (
+    ["epoch", "loss", "total_power", "sample_ids"]
+    + [f"power_ut_{i+1}" for i in range(K)]
+    + [f"rate_ut_{i+1}" for i in range(K)]
+    + [f"qos_ut_{i+1}" for i in range(K)]
+    + [f"sinr_ut_{i+1}" for i in range(K)]
+)
+
+# Buat header log CSV
+with open(log_file, mode="w", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
 
 class PowerDataset(Dataset):
     def __init__(self, path):
         df = pd.read_csv(path)
-        grouped = df.groupby("sample_id")
-        self.X = []
-        for _, group in grouped:
-            features = group[["dist_km", "elev_deg", "azim_deg", "path_loss_db"]].values
-            self.X.append(features)
-        self.X = torch.tensor(self.X, dtype=torch.float32)
+        # buat list of (features, sample_id)
+        examples = []
+        for sid, group in df.groupby("sample_id"):
+            feats = group[["dist_km","elev_deg","azim_deg","path_loss_db"]].values
+            if feats.shape[0] != K:
+                continue
+            examples.append((feats.astype(np.float32), int(sid)))
+        # unzip ke dua list sejajar
+        feats_list, sids_list = zip(*examples)
+        # jadi tensor sekali, bukan per-loop
+        self.X = torch.from_numpy(np.stack(feats_list, axis=0))  # (N_samples, K, 4)
+        self.sids = list(sids_list)                              # [sid0, sid1, …]
 
     def __len__(self):
-        return len(self.X)
+        return self.X.shape[0]
 
     def __getitem__(self, idx):
-        return self.X[idx]  # (10, 4)
+        # kembalikan: (tensor-features, integer-sample_id)
+        return self.X[idx], self.sids[idx]
+
+def collate_fn(batch):
+    # batch: list of tuples (features, sid)
+    feats, sids = zip(*batch)
+    # feats sudah tensor, tinggal stack
+    feats = torch.stack(feats, dim=0)  # (B, K, 4)
+    return feats, list(sids)
+
 
 class PowerAllocatorModel(nn.Module):
     def __init__(self):
@@ -56,8 +87,8 @@ def custom_loss(Rk, Ik, pk, alpha=ALPHA, beta=BETA, gamma=GAMMA, eta=ETA, R_min=
     reward_throughput = -(1 - alpha) * torch.sum(Rk * Ik)                 # - (1 - alpha) Σ Rk Ik
     reward_qos = -alpha * torch.sum(Ik)                                   # - alpha Σ Ik
     qos_penalty = beta * torch.sum(R_min * Ik - Rk)                       # + beta Σ (R_min Ik - Rk)
-    power_penalty = gamma * torch.relu(torch.sum(pk) - P_max)            # + gamma (Σ Pk - Pmax)
-    reg_power = eta * torch.sum(pk)                                       # + eta Σ Pk
+    power_penalty = gamma * torch.relu(pk - P_max)            # + gamma (Σ Pk - Pmax)
+    reg_power = eta * pk                                       # + eta Σ Pk
     return reward_throughput + reward_qos + qos_penalty + power_penalty + reg_power
 
 def compute_noise_power(N0_dBm=-174, noise_figure_dB=7, bandwidth_Hz=20e6):
@@ -75,8 +106,8 @@ def compute_beamforming(predicted_power, path_loss_db):
     L_mk = 10 ** (-path_loss_db / 10)
 
     # Step 2: Hitung beta dan lambda dari L_mk dan K-factor
-    beta_mk = (KAPPA / (KAPPA + 1)) * L_mk
-    lambda_mk = (1.0 / (KAPPA + 1)) * L_mk
+    beta_mk = (K / (K + 1)) * L_mk
+    lambda_mk = (1.0 / (K + 1)) * L_mk
 
     # Step 3: Buat LoS phase component: exp(j * phi), phi uniform [-π, π]
     phi_mk = torch.rand_like(L_mk) * 2 * np.pi - np.pi
@@ -96,13 +127,12 @@ def compute_beamforming(predicted_power, path_loss_db):
     return v_k, sqrt_p, h_mk
 
 def compute_sinr(v_k, h_mk, sigma_n2):
-    inner_product = torch.sum(torch.conj(v_k) * h_mk, dim=1)
-    numerator = torch.abs(inner_product) ** 2
+    # v_k, h_mk shape: (B, K)
+    numerator = torch.abs(v_k * h_mk) ** 2  # shape: (B, K)
+    total_signal = torch.sum(torch.abs(v_k * h_mk) ** 2, dim=1, keepdim=True)  # (B, 1)
+    denominator = total_signal - numerator + sigma_n2  # shape: (B, K)
+    return numerator / denominator  # shape: (B, K)
 
-    interference = torch.sum(torch.abs(v_k * h_mk) ** 2, dim=1)
-    denominator = interference - numerator + sigma_n2
-    
-    return numerator / denominator
 
 # Rate: Rk = (tau_d / tau_c) * log2(1 + SINR_k)
 def compute_rate(sinr_k, tau_d=270, tau_c=300):
@@ -119,7 +149,10 @@ def aggregate_power(predicted_power):
 
 # ==== Prepare Data ====
 train_dataset = PowerDataset("data/processed/train_data.csv")
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+train_loader  = DataLoader(train_dataset,
+                           batch_size=BATCH_SIZE,
+                           shuffle=True,
+                           collate_fn=collate_fn)
 
 model = PowerAllocatorModel()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -127,8 +160,9 @@ optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 for epoch in range(EPOCHS):
     model.train()
     total_loss = 0
+    log_data   = {}
 
-    for x in train_loader:
+    for batch_idx, (x, sample_ids) in enumerate(train_loader):
         predicted_power = model(x)
         sigma_n2_val = compute_noise_power()
         path_loss_db = x[:, :, 3]  # kolom path_loss_db
@@ -144,5 +178,51 @@ for epoch in range(EPOCHS):
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
+
+        L1 = -(1-ALPHA) * torch.sum(Rk * Ik)
+        L2 = -ALPHA * torch.sum(Ik)
+        L3 = BETA * torch.sum(R_MIN * Ik - Rk)
+        L4 = GAMMA * torch.relu(pk - P_MAX)
+        L5 = ETA * pk
+
+        # total loss
+        lossHHH = L1 + L2 + L3 + L4 + L5
+
+        # Debug print komponen loss
+        if batch_idx == 0:
+            print(f"  L1(reward_throughput) = {L1.item():.4f}")
+            print(f"  L2(reward_qos)        = {L2.item():.4f}")
+            print(f"  L3(qos_penalty)       = {L3.item():.4f}")
+            print(f"  L4(power_penalty)     = {L4.item():.4f}")
+            print(f"  L5(reg_power)         = {L5.item():.4f}")
+            print(f"  total loss            = {lossHHH.item():.4f}")
+
+
+        # 2) Debug print gradien norm
+        if batch_idx == 0:
+            total_norm = 0.0
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    param_norm = param.grad.data.norm(2).item()
+                    total_norm += param_norm**2
+                    print(f"   grad_norm {name}: {param_norm:.4e}")
+            total_norm = total_norm**0.5
+            print(f"   ==> total grad norm: {total_norm:.4e}")
+
+        if batch_idx == 0:
+            log_data["epoch"] = epoch + 1
+            log_data["loss"]  = loss.item()
+            log_data["total_power"] = pk[0].item()
+            log_data["sample_ids"]  = ", ".join(map(str, sample_ids))
+            for i in range(K):
+                log_data[f"power_ut_{i+1}"] = predicted_power[0,i].item()
+                log_data[f"rate_ut_{i+1}"]  = Rk[0,i].item()
+                log_data[f"qos_ut_{i+1}"]   = Ik[0,i].item()
+                log_data[f"sinr_ut_{i+1}"]  = sinr_k[0,i].item()
+
+    # Simpan ke CSV
+    with open(log_file, mode="a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writerow(log_data)
 
     print(f"Epoch {epoch+1}: Loss = {total_loss:.4f}")

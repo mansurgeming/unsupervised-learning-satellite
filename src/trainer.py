@@ -6,11 +6,11 @@ from torch.utils.data import Dataset, DataLoader
 import csv
 
 # ==== Config & Hyperparams ====
-ALPHA = 0.8
-BETA = 0.1
-GAMMA = 0.1
-ETA = 0.001
-R_MIN = 0.0000006667
+ALPHA = 0.5
+BETA = 10
+GAMMA = 10
+ETA = 10
+R_MIN = 0.000000000667
 P_MAX = 800.0
 EPOCHS = 5
 BATCH_SIZE = 1
@@ -20,13 +20,10 @@ K = 10 # Jumlah User Terminals (UT)
 log_file = "training_log.csv"
 fieldnames = (
     ["epoch", "loss", "total_power", "sample_ids"]
-    + [f"vk_mag_ut_{i+1}"  for i in range(K)]
-    + [f"vk_real_ut_{i+1}" for i in range(K)]
-    + [f"vk_imag_ut_{i+1}" for i in range(K)]
-    + [f"sinr_ut_{i+1}" for i in range(K)]
     + [f"power_ut_{i+1}" for i in range(K)]
     + [f"rate_ut_{i+1}" for i in range(K)]
     + [f"qos_ut_{i+1}" for i in range(K)]
+    + [f"sinr_ut_{i+1}" for i in range(K)]
 )
 
 # Buat header log CSV
@@ -170,8 +167,7 @@ for epoch in range(EPOCHS):
         sigma_n2_val = compute_noise_power()
         path_loss_db = x[:, :, 3]  # kolom path_loss_db
         v_k, sqrt_p, h_mk = compute_beamforming(predicted_power, path_loss_db)
-        vk0 = v_k[0]
-        
+
         sinr_k = compute_sinr(v_k, h_mk, sigma_n2_val)
         Rk = compute_rate(sinr_k)
         Ik = determine_qos(Rk)
@@ -192,8 +188,10 @@ for epoch in range(EPOCHS):
         # total loss
         lossHHH = L1 + L2 + L3 + L4 + L5
 
-        # # Debug print komponen loss
-        # if batch_idx == 0:
+        # Debug print komponen loss
+
+        if batch_idx == 0:
+
         #     print(f"  L1(reward_throughput) = {L1.item():.4f}")
         #     print(f"  L2(reward_qos)        = {L2.item():.4f}")
         #     print(f"  L3(qos_penalty)       = {L3.item():.4f}")
@@ -202,16 +200,16 @@ for epoch in range(EPOCHS):
         #     print(f"  total loss            = {lossHHH.item():.4f}")
 
 
-        # # 2) Debug print gradien norm
-        # if batch_idx == 0:
-        #     total_norm = 0.0
-        #     for name, param in model.named_parameters():
-        #         if param.grad is not None:
-        #             param_norm = param.grad.data.norm(2).item()
-        #             total_norm += param_norm**2
-        #             print(f"   grad_norm {name}: {param_norm:.4e}")
-        #     total_norm = total_norm**0.5
-        #     print(f"   ==> total grad norm: {total_norm:.4e}")
+        # 2) Debug print gradien norm
+        if batch_idx == 0:
+            total_norm = 0.0
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    param_norm = param.grad.data.norm(2).item()
+                    total_norm += param_norm**2
+                    print(f"   grad_norm {name}: {param_norm:.4e}")
+            total_norm = total_norm**0.5
+            print(f"   ==> total grad norm: {total_norm:.4e}")
 
         if batch_idx == 0:
             log_data["epoch"] = epoch + 1
@@ -219,13 +217,10 @@ for epoch in range(EPOCHS):
             log_data["total_power"] = pk[0].item()
             log_data["sample_ids"]  = ", ".join(map(str, sample_ids))
             for i in range(K):
-                log_data[f"vk_mag_ut_{i+1}"]  = vk0[i].abs().item()
-                log_data[f"vk_real_ut_{i+1}"] = vk0[i].real.item()
-                log_data[f"vk_imag_ut_{i+1}"] = vk0[i].imag.item()
-                log_data[f"sinr_ut_{i+1}"]  = sinr_k[0,i].item()
                 log_data[f"power_ut_{i+1}"] = predicted_power[0,i].item()
                 log_data[f"rate_ut_{i+1}"]  = Rk[0,i].item()
                 log_data[f"qos_ut_{i+1}"]   = Ik[0,i].item()
+                log_data[f"sinr_ut_{i+1}"]  = sinr_k[0,i].item()
 
     # Simpan ke CSV
     with open(log_file, mode="a", newline="") as f:

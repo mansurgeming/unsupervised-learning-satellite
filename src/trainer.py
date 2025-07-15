@@ -10,9 +10,9 @@ ALPHA = 0.8
 BETA = 0.1
 GAMMA = 0.1
 ETA = 0.001
-R_MIN = 0.0000006667
+R_MIN = 1
 P_MAX = 800.0
-EPOCHS = 5
+EPOCHS = 50
 BATCH_SIZE = 1
 K = 10 # Jumlah User Terminals (UT)
 
@@ -37,51 +37,35 @@ with open(log_file, mode="w", newline="") as f:
 class PowerDataset(Dataset):
     def __init__(self, path):
         df = pd.read_csv(path)
-        # buat list of (features, sample_id)
         examples = []
         for sid, group in df.groupby("sample_id"):
-            feats = group[["dist_km","elev_deg","azim_deg","path_loss_db"]].values
-            if feats.shape[0] != K:
+            # hanya path_loss_db
+            pl = group[["path_loss_db"]].values    # (K,1)
+            if pl.shape[0] != K:
                 continue
-            examples.append((feats.astype(np.float32), int(sid)))
-        # unzip ke dua list sejajar
+            examples.append((pl.astype(np.float32).flatten(), int(sid)))
         feats_list, sids_list = zip(*examples)
-        # jadi tensor sekali, bukan per-loop
-        self.X = torch.from_numpy(np.stack(feats_list, axis=0))  # (N_samples, K, 4)
-        self.sids = list(sids_list)                              # [sid0, sid1, …]
-
-    def __len__(self):
-        return self.X.shape[0]
-
-    def __getitem__(self, idx):
-        # kembalikan: (tensor-features, integer-sample_id)
-        return self.X[idx], self.sids[idx]
-
-def collate_fn(batch):
-    # batch: list of tuples (features, sid)
-    feats, sids = zip(*batch)
-    # feats sudah tensor, tinggal stack
-    feats = torch.stack(feats, dim=0)  # (B, K, 4)
-    return feats, list(sids)
-
+        self.X    = torch.from_numpy(np.stack(feats_list, axis=0))  # (N, K)
+        self.sids = list(sids_list)
+    def __len__(self):   return len(self.sids)
+    def __getitem__(self, i): return self.X[i], self.sids[i]
 
 class PowerAllocatorModel(nn.Module):
-    def __init__(self):
+    def __init__(self, K):
         super().__init__()
-        self.mlp = nn.Sequential(
-            nn.Linear(40, 128),
+        self.net = nn.Sequential(
+            nn.Linear(K+1, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 32),
             nn.ReLU(),
-            nn.Linear(32, 10),
-            nn.ReLU()
+            nn.Linear(32, K),
+            nn.Softplus()   # agar output ≥ 0
         )
-
     def forward(self, x):
-        x = x.view(x.size(0), -1)
-        return self.mlp(x)
+        # x: (B, K)
+        return self.net(x)  # → (B, K)
 
 # Custom loss function sesuai persamaan:
 # L = -(1 - alpha) * sum(Rk * Ik) - alpha * sum(Ik)
@@ -154,29 +138,35 @@ def aggregate_power(predicted_power):
 train_dataset = PowerDataset("data/processed/train_data.csv")
 train_loader  = DataLoader(train_dataset,
                            batch_size=BATCH_SIZE,
-                           shuffle=True,
-                           collate_fn=collate_fn)
+                           shuffle=True)
 
-model = PowerAllocatorModel()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+model = PowerAllocatorModel(K)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
 for epoch in range(EPOCHS):
     model.train()
     total_loss = 0
     log_data   = {}
 
-    for batch_idx, (x, sample_ids) in enumerate(train_loader):
-        predicted_power = model(x)
-        sigma_n2_val = compute_noise_power()
-        path_loss_db = x[:, :, 3]  # kolom path_loss_db
-        v_k, sqrt_p, h_mk = compute_beamforming(predicted_power, path_loss_db)
-        vk0 = v_k[0]
+    for batch_idx, (path_loss_db, sample_ids) in enumerate(train_loader):
+        # ===== buat input model: [path_loss_db | P_MAX] → (B, K+1)
+        B = path_loss_db.size(0)
+        pmax_col = torch.full((B,1), P_MAX, device=path_loss_db.device)
+        inp = torch.cat([path_loss_db, pmax_col], dim=1)   # (B, K+1)
 
-        sinr_k = compute_sinr(v_k, h_mk, sigma_n2_val)
-        Rk = compute_rate(sinr_k)
-        Ik = determine_qos(Rk)
-        pk = aggregate_power(predicted_power)
-        loss = custom_loss(Rk, Ik, pk)
+        # ===== forward & hitung loss =====
+        predicted_power = model(inp)                       # → (B, K)
+
+        # beamforming / SINR / rate / QoS dst, tapi path_loss_db=ganti
+        sigma_n2_val = compute_noise_power()
+        v_k, sqrt_p, h_mk    = compute_beamforming(predicted_power, path_loss_db)
+        sinr_k               = compute_sinr(v_k, h_mk, sigma_n2_val)
+        Rk                   = compute_rate(sinr_k)
+        Ik                   = determine_qos(Rk)
+        pk                   = aggregate_power(predicted_power)
+        loss                 = custom_loss(Rk, Ik, pk)
+
+        vk0 = v_k[0]
 
         optimizer.zero_grad()
         loss.backward()

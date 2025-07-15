@@ -149,13 +149,17 @@ for epoch in range(EPOCHS):
     log_data   = {}
 
     for batch_idx, (path_loss_db, sample_ids) in enumerate(train_loader):
+        df_all = pd.read_csv("data/processed/train_data.csv")
+        PL_MAX = df_all["path_loss_db"].max()
         # ===== buat input model: [path_loss_db | P_MAX] → (B, K+1)
         B = path_loss_db.size(0)
-        pmax_col = torch.full((B,1), P_MAX, device=path_loss_db.device)
-        inp = torch.cat([path_loss_db, pmax_col], dim=1)   # (B, K+1)
+        pl_norm   = path_loss_db / PL_MAX
+        pmax_norm = torch.ones((B,1), device=path_loss_db.device)
+        inp       = torch.cat([pl_norm, pmax_norm], dim=1)
 
         # ===== forward & hitung loss =====
         predicted_power = model(inp)                       # → (B, K)
+        predicted_power = predicted_power * P_MAX
 
         # beamforming / SINR / rate / QoS dst, tapi path_loss_db=ganti
         sigma_n2_val = compute_noise_power()
@@ -208,18 +212,34 @@ for epoch in range(EPOCHS):
             log_data["loss"]  = loss.item()
             log_data["total_power"] = pk[0].item()
             log_data["sample_ids"]  = ", ".join(map(str, sample_ids))
+
+            # Debug: cek shape
+            print(f"\n[Epoch {epoch+1}]")
+            print(f"predicted_power.shape = {predicted_power.shape}")
+
+            # Print power per UT
+            print("Power allocation per UT:")
             for i in range(K):
+                # ambil nilai power
+                power_val = predicted_power[0, i].item()
+                print(f"  UT-{i+1}: {power_val:.6f} W")
+
+                # simpan juga ke log_data
+                log_data[f"power_ut_{i+1}"] = power_val
+
+                # sisanya tetap seperti semula
                 log_data[f"vk_mag_ut_{i+1}"]  = vk0[i].abs().item()
                 log_data[f"vk_real_ut_{i+1}"] = vk0[i].real.item()
                 log_data[f"vk_imag_ut_{i+1}"] = vk0[i].imag.item()
-                log_data[f"sinr_ut_{i+1}"]  = sinr_k[0,i].item()
-                log_data[f"power_ut_{i+1}"] = predicted_power[0,i].item()
-                log_data[f"rate_ut_{i+1}"]  = Rk[0,i].item()
-                log_data[f"qos_ut_{i+1}"]   = Ik[0,i].item()
+                log_data[f"sinr_ut_{i+1}"]     = sinr_k[0,i].item()
+                log_data[f"rate_ut_{i+1}"]     = Rk[0,i].item()
+                log_data[f"qos_ut_{i+1}"]      = Ik[0,i].item()
+
+            print(f"Total power: {pk[0].item():.6f} W\n")
 
     # Simpan ke CSV
     with open(log_file, mode="a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writerow(log_data)
 
-    print(f"Epoch {epoch+1}: Loss = {total_loss:.4f}")
+    print(f"Epoch {epoch+1}: Loss = {total_loss:.8f}")

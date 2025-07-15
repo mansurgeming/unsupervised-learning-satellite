@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import csv
-
+1
 # ==== Config & Hyperparams ====
 ALPHA = 0.8
 BETA = 0.1
@@ -171,7 +171,7 @@ for epoch in range(EPOCHS):
         path_loss_db = x[:, :, 3]  # kolom path_loss_db
         v_k, sqrt_p, h_mk = compute_beamforming(predicted_power, path_loss_db)
         vk0 = v_k[0]
-        
+
         sinr_k = compute_sinr(v_k, h_mk, sigma_n2_val)
         Rk = compute_rate(sinr_k)
         Ik = determine_qos(Rk)

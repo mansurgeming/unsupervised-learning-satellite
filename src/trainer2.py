@@ -5,7 +5,7 @@ import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import csv
 import sys
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt # <-- PERBAIKAN: Pastikan baris ini ada di atas
 
 # =================================================================
 # ==== Config & Hyperparams ====
@@ -24,7 +24,7 @@ LEARNING_RATE = 1e-4
 # =================================================================
 # ==== Setup Logging ====
 # =================================================================
-log_file = "training_log_revised.csv"
+log_file = "training_log_revised_loss_function_nael.csv"
 fieldnames = (
     ["epoch", "loss", "total_power_watt", "sample_ids"]
     + [f"vk_mag_ut_{i+1}"  for i in range(K)]
@@ -82,17 +82,13 @@ class PowerAllocatorModel(nn.Module):
         return self.net(x)
 
 # =================================================================
-# ==== Loss Function (REVISI PENTING) ====
+# ==== Loss Function ====
 # =================================================================
 def custom_loss(Rk, Ik, pk_norm, alpha=ALPHA, beta=BETA, gamma=GAMMA, eta=ETA, R_min=R_MIN):
     reward_throughput = -(1 - alpha) * torch.sum(Rk * Ik)
     reward_qos = -alpha * torch.sum(Ik)
     qos_penalty = beta * torch.sum(torch.relu(R_min * Ik - Rk))
-    
-    # REVISI: Hapus .sum(dim=1) yang berlebihan
-    # OLD: power_penalty = gamma * torch.sum(torch.relu(pk_norm.sum(dim=1) - 1.0))
     power_penalty = gamma * torch.sum(torch.relu(pk_norm - 1.0))
-
     reg_power = eta * pk_norm.sum()
     return reward_throughput + reward_qos + qos_penalty + power_penalty + reg_power
 
@@ -132,11 +128,11 @@ def determine_qos(Rk, R_min=R_MIN, steepness=10.0):
 
 def aggregate_power(predicted_power):
     return predicted_power.sum(dim=1)
+
 # =================================================================
-# ==== Fungsi Plotting (FUNGSI BARU) ====
+# ==== Fungsi Plotting ====
 # =================================================================
 def plot_training_results(log_path):
-    """Membaca file log CSV dan membuat grafik loss."""
     print("\nMembuat grafik hasil training...")
     try:
         df = pd.read_csv(log_path)
@@ -144,7 +140,6 @@ def plot_training_results(log_path):
         plt.style.use('seaborn-v0_8-whitegrid')
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        # Plotting Loss dengan skala logaritmik
         ax.plot(df['epoch'], df['loss'], marker='o', linestyle='-', color='b', label='Loss per Batch (Skala Log)')
         
         ax.set_xlabel("Epoch")
@@ -156,8 +151,7 @@ def plot_training_results(log_path):
 
         plt.tight_layout()
         
-        # Menyimpan plot ke file
-        output_filename = "loss_vs_epoch.png"
+        output_filename = "loss_vs_epoch_nael.png"
         plt.savefig(output_filename)
         print(f"Grafik telah berhasil disimpan sebagai: {output_filename}")
 
@@ -165,6 +159,7 @@ def plot_training_results(log_path):
         print(f"Error: File log '{log_path}' tidak ditemukan.")
     except Exception as e:
         print(f"Error saat membuat grafik: {e}")
+
 # =================================================================
 # ==== Persiapan & Training Loop ====
 # =================================================================
@@ -233,13 +228,10 @@ for epoch in range(EPOCHS):
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writerow(log_data)
     
-    # Hitung rata-rata loss per epoch
     if len(train_loader) > 0:
         avg_loss = total_epoch_loss / len(train_loader)
         print(f"Epoch {epoch+1}/{EPOCHS}: Average Loss = {avg_loss:.6f}")
         sys.stdout.flush()
 
-# =================================================================
-# ==== Panggil Fungsi Plotting Setelah Training Selesai ====
-# =================================================================
+# Panggil fungsi plotting setelah training selesai
 plot_training_results(log_file)

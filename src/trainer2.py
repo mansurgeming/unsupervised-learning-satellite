@@ -10,13 +10,13 @@ import matplotlib.pyplot as plt # <-- PERBAIKAN: Pastikan baris ini ada di atas
 # =================================================================
 # ==== Config & Hyperparams ====
 # =================================================================
-ALPHA = 0.8
-BETA = 0.1
-GAMMA = 0.1
-ETA = 0.001
-R_MIN = 1.0
+ALPHA = 0.5
+BETA = 5
+GAMMA = 5
+ETA = 5
+R_MIN = 1
 P_MAX = 800.0
-EPOCHS = 50
+EPOCHS = 20
 BATCH_SIZE = 32
 K = 10
 LEARNING_RATE = 1e-4
@@ -90,7 +90,7 @@ def custom_loss(Rk, Ik, pk_norm, alpha=ALPHA, beta=BETA, gamma=GAMMA, eta=ETA, R
     qos_penalty = beta * torch.sum(torch.relu(R_min * Ik - Rk))
     power_penalty = gamma * torch.sum(torch.relu(pk_norm - 1.0))
     reg_power = eta * pk_norm.sum()
-    return reward_throughput + reward_qos + qos_penalty + power_penalty + reg_power
+    return reward_throughput + reward_qos + qos_penalty + power_penalty 
 
 # =================================================================
 # ==== Fungsi Pembantu ====
@@ -100,9 +100,15 @@ def compute_noise_power(N0_dBm=-174, noise_figure_dB=7, bandwidth_Hz=20e6):
     sigma_n2 = 10 ** ((total_noise_dBm - 30) / 10)
     return sigma_n2
 
+
 def compute_beamforming(predicted_power, path_loss_db):
-    sqrt_p = torch.sqrt(predicted_power + 1e-9)
-    L_mk = 10 ** (-path_loss_db / 10)
+    L_mk = 10 ** (-path_loss_db / 10)  # Path loss dalam linear scale (bukan dB)
+    
+    # ===== Perbaikan sqrt_p sesuai jurnal =====
+    p = (predicted_power / (L_mk + 1e-9))  # Normalisasi oleh E[|h|^2]
+    sqrt_p=torch.sqrt(p)
+
+    # ===== Channel generation =====
     beta_mk = (K / (K + 1)) * L_mk
     lambda_mk = (1.0 / (K + 1)) * L_mk
     phi_mk = torch.rand_like(L_mk) * 2 * np.pi - np.pi
@@ -110,21 +116,44 @@ def compute_beamforming(predicted_power, path_loss_db):
     real = torch.randn_like(L_mk) * torch.sqrt(lambda_mk / 2)
     imag = torch.randn_like(L_mk) * torch.sqrt(lambda_mk / 2)
     nlos = real + 1j * imag
-    h_mk = los + nlos
+    h_mk=torch.sqrt(L_mk)+nlos
+    # h_mk = los + nlos
+    # ===== Precoding vector =====
     v_k = sqrt_p * h_mk
     return v_k, sqrt_p, h_mk
+
+
+# def compute_beamforming(predicted_power, path_loss_db):
+#     sqrt_p = torch.sqrt(predicted_power + 1e-9)
+#     L_mk = 10 ** (-path_loss_db / 10)
+#     beta_mk = (K / (K + 1)) * L_mk
+#     lambda_mk = (1.0 / (K + 1)) * L_mk
+#     phi_mk = torch.rand_like(L_mk) * 2 * np.pi - np.pi
+#     los = torch.sqrt(beta_mk) * torch.exp(1j * phi_mk)
+#     real = torch.randn_like(L_mk) * torch.sqrt(lambda_mk / 2)
+#     imag = torch.randn_like(L_mk) * torch.sqrt(lambda_mk / 2)
+#     nlos = real + 1j * imag
+#     h_mk = los + nlos
+#     v_k = sqrt_p * h_mk
+#     return v_k, sqrt_p, h_mk
 
 def compute_sinr(v_k, h_mk, sigma_n2):
     numerator = torch.abs(v_k * h_mk) ** 2
     total_signal = torch.sum(torch.abs(v_k * h_mk) ** 2, dim=1, keepdim=True)
     denominator = total_signal - numerator + sigma_n2 + 1e-9
+    # print(numerator)
+    # print(denominator)
+    # print(numerator/denominator)
     return numerator / denominator
 
 def compute_rate(sinr_k, tau_d=270, tau_c=300):
+    # print(torch.log2(1 + sinr_k))
     return (tau_d / tau_c) * torch.log2(1 + sinr_k)
+    # return (tau_d / tau_c) * torch.log2(1 + sinr_k.clamp(min=1e-30))
 
-def determine_qos(Rk, R_min=R_MIN, steepness=10.0):
-    return torch.sigmoid(steepness * (Rk - R_min))
+# def determine_qos(Rk, R_min=R_MIN, steepness=10.0):
+#     return torch.sigmoid(steepness * (Rk - R_min))
+
 
 def aggregate_power(predicted_power):
     return predicted_power.sum(dim=1)
@@ -138,7 +167,7 @@ def plot_training_results(log_path):
         df = pd.read_csv(log_path)
         
         plt.style.use('seaborn-v0_8-whitegrid')
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(10, 10))
 
         ax.plot(df['epoch'], df['loss'], marker='o', linestyle='-', color='b', label='Loss per Batch (Skala Log)')
         
@@ -194,10 +223,12 @@ for epoch in range(EPOCHS):
         v_k, _, h_mk = compute_beamforming(predicted_power_scaled, path_loss_db)
         sinr_k = compute_sinr(v_k, h_mk, sigma_n2_val)
         Rk = compute_rate(sinr_k)
-        Ik = determine_qos(Rk)
+        Ik = (Rk >= R_MIN).float()
+        #Ik = determine_qos(Rk)
         
         pk_scaled = aggregate_power(predicted_power_scaled)
         pk_norm = aggregate_power(predicted_power_norm)
+        pk_norm = torch.relu(pk_norm)
 
         loss = custom_loss(Rk, Ik, pk_norm)
 

@@ -5,7 +5,7 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 from skyfield.api import load, wgs84
 
-RAW_PATH = "data/raw/raw_dataset.csv"
+RAW_PATH = "data/raw/raw_data_1satelite_rectangle.csv"
 SAVE_DIR = "data/processed"
 N_UT = 10
 VAL_RATIO = 0.2
@@ -60,7 +60,8 @@ def main():
     grouped = df.groupby("sample_id")
     for sample_id, group in tqdm(grouped, desc="Processing samples"):
         ut_positions = group[["ut_lat", "ut_lon"]].values
-        sat_pos = group.iloc[0][["sat_lat", "sat_lon", "sat_alt_km"]].values
+        sat_columns = [col for col in group.columns if col.startswith("sat_1_")]
+        sat_pos = group.iloc[0][sat_columns].values
 
         features = compute_channel_features(
             ut_positions, sat_pos, ts, t

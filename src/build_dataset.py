@@ -15,14 +15,14 @@ REGION_CENTER_LON = 121.0
 AREA_SIDE_KM = 1000
 N_SAMPLES = 10000
 N_UT = 10
-N_SATS_LIST = [2, 4, 6, 8]
+N_SATS_LIST = [1, 2, 4, 6, 8]
 DEFAULT_SAT_ALTITUDE_KM = 550 # Ketinggian fallback jika gagal mengambil data TLE
 
 # URL TLE untuk grup satelit Starlink
 TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle"
 
 # Lokasi penyimpanan data
-SAVE_DIR = "../data/raw/"
+SAVE_DIR = "data/raw/"
 
 def generate_random_square_positions(center_lat, center_lon, side_km, num_points):
     """
@@ -38,6 +38,23 @@ def generate_random_square_positions(center_lat, center_lon, side_km, num_points
     max_lon = center_lon + half_side_lon
     lats = np.random.uniform(min_lat, max_lat, num_points)
     lons = np.random.uniform(min_lon, max_lon, num_points)
+    return np.column_stack((lats, lons))
+
+def generate_satellite_positions_near_center(center_lat, center_lon, radius_km, num_points):
+    """
+    Menghasilkan posisi satelit secara acak dalam radius tertentu dari pusat area.
+    """
+    lat_degree_per_km = 1.0 / 111.0
+    lon_degree_per_km = 1.0 / (111.0 * np.cos(np.radians(center_lat)))
+
+    radii = np.sqrt(np.random.uniform(0, radius_km ** 2, num_points))  # Uniform dalam area lingkaran
+    angles = np.random.uniform(0, 2 * np.pi, num_points)
+
+    delta_lat = radii * np.cos(angles) * lat_degree_per_km
+    delta_lon = radii * np.sin(angles) * lon_degree_per_km
+
+    lats = center_lat + delta_lat
+    lons = center_lon + delta_lon
     return np.column_stack((lats, lons))
 
 def get_realistic_altitude():
@@ -91,7 +108,7 @@ def main():
                     REGION_CENTER_LAT, REGION_CENTER_LON, AREA_SIDE_KM, N_UT
                 )
                 sat_positions = generate_random_square_positions(
-                    REGION_CENTER_LAT, REGION_CENTER_LON, AREA_SIDE_KM, n_sats
+                    REGION_CENTER_LAT, REGION_CENTER_LON, 2000, n_sats
                 )
 
                 sat_data_flat = []

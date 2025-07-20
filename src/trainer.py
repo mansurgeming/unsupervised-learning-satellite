@@ -10,13 +10,13 @@ import matplotlib.pyplot as plt
 # =================================================================
 # ==== Config & Hyperparams ====
 # =================================================================
-ALPHA = 0.8
-BETA = 0.1
-GAMMA = 0.1
-ETA = 0.001
+ALPHA = 0.5
+BETA = 10
+GAMMA = 10
+ETA = 10
 R_MIN = 1.0
 P_MAX = 800.0
-EPOCHS = 50
+EPOCHS = 30
 BATCH_SIZE = 32
 K = 10
 LEARNING_RATE = 1e-4

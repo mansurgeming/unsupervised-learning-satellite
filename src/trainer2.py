@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import csv
+import os
 import sys
 import matplotlib.pyplot as plt # <-- PERBAIKAN: Pastikan baris ini ada di atas
 
@@ -14,12 +15,12 @@ ALPHA = 0.5
 BETA = 5
 GAMMA = 5
 ETA = 5
-R_MIN = 1
+R_MIN = 0.5
 P_MAX = 800.0
-EPOCHS = 20
+EPOCHS = 100
 BATCH_SIZE = 32
 K = 10
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-3
 
 # =================================================================
 # ==== Setup Logging ====
@@ -89,7 +90,7 @@ def custom_loss(Rk, Ik, pk_norm, alpha=ALPHA, beta=BETA, gamma=GAMMA, eta=ETA, R
     reward_qos = -alpha * torch.sum(Ik)
     qos_penalty = beta * torch.sum(torch.relu(R_min * Ik - Rk))
     power_penalty = gamma * torch.sum(torch.relu(pk_norm - 1.0))
-    reg_power = eta * pk_norm.sum()
+    # reg_power = eta * pk_norm.sum()
     return reward_throughput + reward_qos + qos_penalty + power_penalty 
 
 # =================================================================
@@ -105,7 +106,7 @@ def compute_beamforming(predicted_power, path_loss_db):
     L_mk = 10 ** (-path_loss_db / 10)  # Path loss dalam linear scale (bukan dB)
     
     # ===== Perbaikan sqrt_p sesuai jurnal =====
-    p = (predicted_power / (L_mk + 1e-9))  # Normalisasi oleh E[|h|^2]
+    p = (predicted_power / (L_mk))  # Normalisasi oleh E[|h|^2]
     sqrt_p=torch.sqrt(p)
 
     # ===== Channel generation =====
@@ -140,15 +141,20 @@ def compute_beamforming(predicted_power, path_loss_db):
 def compute_sinr(v_k, h_mk, sigma_n2):
     numerator = torch.abs(v_k * h_mk) ** 2
     total_signal = torch.sum(torch.abs(v_k * h_mk) ** 2, dim=1, keepdim=True)
-    denominator = total_signal - numerator + sigma_n2 + 1e-9
+    denominator = total_signal - numerator + sigma_n2
+    result = numerator / denominator
+    
+    return result
     # print(numerator)
     # print(denominator)
     # print(numerator/denominator)
-    return numerator / denominator
+    # return numerator / denominator
 
 def compute_rate(sinr_k, tau_d=270, tau_c=300):
     # print(torch.log2(1 + sinr_k))
-    return (tau_d / tau_c) * torch.log2(1 + sinr_k)
+    result = (tau_d / tau_c) * torch.log2(1 + 100*sinr_k)
+    # R = torch.clamp(result, min=1)
+    return result
     # return (tau_d / tau_c) * torch.log2(1 + sinr_k.clamp(min=1e-30))
 
 # def determine_qos(Rk, R_min=R_MIN, steepness=10.0):
@@ -190,6 +196,67 @@ def plot_training_results(log_path):
         print(f"Error saat membuat grafik: {e}")
 
 # =================================================================
+# ==== Plot Rate vs Epoch untuk Masing-Masing User Terminal (UT) ====
+# =================================================================
+def plot_rate_per_user(log_path):
+    print("\nMembuat grafik Rate vs Epoch untuk masing-masing UT...")
+    try:
+        df = pd.read_csv(log_path)
+        output_dir = "rate_per_user_plots"
+        os.makedirs(output_dir, exist_ok=True)
+
+        for i in range(1, K + 1):  # UT 1 sampai 10
+            plt.figure(figsize=(10, 6))
+            plt.plot(df["epoch"], df[f"rate_ut_{i}"], marker='o', linestyle='-', label=f'UT {i}')
+            plt.xlabel("Epoch")
+            plt.ylabel("Rate (bps/Hz)")
+            plt.title(f"Perbandingan Rate vs Epoch untuk UT {i}")
+            plt.grid(True)
+            plt.legend()
+
+            output_file = os.path.join(output_dir, f"rate_vs_epoch_ut_{i}.png")
+            plt.savefig(output_file)
+            plt.close()
+
+        print(f"Grafik untuk semua UT telah disimpan di folder '{output_dir}'.")
+
+    except FileNotFoundError:
+        print(f"Error: File log '{log_path}' tidak ditemukan.")
+    except Exception as e:
+        print(f"Error saat membuat grafik Rate per UT: {e}")
+
+# =================================================================
+# ==== Plot QoS Indicator (Ik) vs Epoch untuk Masing-Masing UT ====
+# =================================================================
+def plot_qos_per_user(log_path):
+    print("\nMembuat grafik QoS (Ik) vs Epoch untuk masing-masing UT...")
+    try:
+        df = pd.read_csv(log_path)
+        output_dir = "qos_per_user_plots"
+        os.makedirs(output_dir, exist_ok=True)
+
+        for i in range(1, K + 1):  # UT 1 sampai 10
+            plt.figure(figsize=(10, 6))
+            plt.plot(df["epoch"], df[f"qos_ut_{i}"], marker='o', linestyle='-', label=f'UT {i}')
+            plt.xlabel("Epoch")
+            plt.ylabel("QoS Indicator (Ik)")
+            plt.title(f"QoS vs Epoch untuk UT {i}")
+            plt.grid(True)
+            plt.legend()
+            plt.ylim(-0.1, 1.1)
+
+            output_file = os.path.join(output_dir, f"qos_vs_epoch_ut_{i}.png")
+            plt.savefig(output_file)
+            plt.close()
+
+        print(f"Grafik QoS untuk semua UT telah disimpan di folder '{output_dir}'.")
+
+    except FileNotFoundError:
+        print(f"Error: File log '{log_path}' tidak ditemukan.")
+    except Exception as e:
+        print(f"Error saat membuat grafik QoS per UT: {e}")
+
+# =================================================================
 # ==== Persiapan & Training Loop ====
 # =================================================================
 train_dataset = PowerDataset("data/processed/train_data.csv")
@@ -224,7 +291,7 @@ for epoch in range(EPOCHS):
         sinr_k = compute_sinr(v_k, h_mk, sigma_n2_val)
         Rk = compute_rate(sinr_k)
         Ik = (Rk >= R_MIN).float()
-        #Ik = determine_qos(Rk)
+        # Ik = determine_qos(Rk)
         
         pk_scaled = aggregate_power(predicted_power_scaled)
         pk_norm = aggregate_power(predicted_power_norm)
@@ -266,3 +333,5 @@ for epoch in range(EPOCHS):
 
 # Panggil fungsi plotting setelah training selesai
 plot_training_results(log_file)
+plot_rate_per_user(log_file)
+plot_qos_per_user(log_file)

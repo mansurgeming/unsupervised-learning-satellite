@@ -127,8 +127,8 @@ def compute_sinr(v_k, h_mk, sigma_n2):
 def compute_rate(sinr_k, tau_d=270, tau_c=300):
     return (tau_d / tau_c) * torch.log2(1 + sinr_k)
 
-def determine_qos(Rk, R_min=R_MIN, steepness=10.0):
-    return torch.sigmoid(steepness * (Rk - R_min))
+def determine_qos(Rk, R_min=R_MIN, Ik):
+    return torch.sigmoid(Ik * (Rk - R_min))
 
 def aggregate_power(predicted_power):
     return predicted_power.sum(dim=1)

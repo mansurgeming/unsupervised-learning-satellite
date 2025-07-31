@@ -266,15 +266,17 @@ def plot_total_network_throughput(model_dir, baseline_dir):
 
 def plot_satelite_vs_user(satellite_count, user_count, sample_data):
     """
-    Fungsi ini akan menampilkan visualisasi jumlah satelit dalam bentuk segitiga 
-    dan jumlah pengguna dalam bentuk lingkaran dengan garis menghubungkan 
-    satelit dan pengguna berdasarkan QoS.
+    Fungsi ini akan menampilkan visualisasi jumlah satelit (segitiga)
+    dan jumlah pengguna (lingkaran). Garis hijau akan menghubungkan pengguna
+    ke setiap satelit yang memenuhi syarat QoS (rate >= R_MIN).
 
     :param satellite_count: Jumlah satelit (integer)
     :param user_count: Jumlah pengguna (integer)
     :param sample_data: Data sampel yang berisi informasi QoS dan hubungan antara pengguna dan satelit
     """
-    # Tentukan posisi satelit dan pengguna
+    # Tentukan posisi acak untuk satelit dan pengguna
+    # Menggunakan seed untuk konsistensi jika diperlukan
+    np.random.seed(42)
     x_sats = np.random.uniform(1, 10, size=satellite_count)  # Posisi X satelit
     y_sats = np.random.uniform(1, 10, size=satellite_count)  # Posisi Y satelit
 
@@ -284,34 +286,39 @@ def plot_satelite_vs_user(satellite_count, user_count, sample_data):
     # Membuat plot
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    # Plot satelit (segitiga)
-    ax.scatter(x_sats, y_sats, color='blue', marker='^', s=100, label="Satelit", edgecolors='black')
+    # Plot satelit (segitiga biru)
+    ax.scatter(x_users, y_users, color='blue', marker='^', s=120, label="Satelit", edgecolors='black', zorder=5)
+    ax.scatter(x_sats, y_sats, color='red', marker='o', s=100, label="Pengguna", edgecolors='black', zorder=5)
 
-    # Plot pengguna (lingkaran)
-    ax.scatter(x_users, y_users, color='red', marker='o', s=100, label="Pengguna", edgecolors='black')
+    # Plot pengguna (lingkaran merah)
+    
 
-    # Menghubungkan pengguna dengan semua satelit yang memenuhi QoS
+    # --- PERUBAHAN UTAMA ADA DI BAGIAN INI ---
+    # Menghubungkan pengguna hanya dengan satelit yang memenuhi QoS
     for i in range(user_count):
-        # Ambil data rate_per_ut untuk pengguna tertentu
-        rate_per_ut = json.loads(sample_data['rate_per_ut'][i])  # Menyesuaikan format dari rate_per_ut
+        # Ambil dan parse data rate_per_ut untuk pengguna ke-i
+        # Pastikan formatnya adalah list of floats
+        rate_per_ut = json.loads(sample_data['rate_per_ut'][i])
 
-        # Looping untuk setiap satelit yang terhubung dengan pengguna jika rate_per_ut >= R_MIN
+        # Iterasi untuk setiap satelit
         for j, rate in enumerate(rate_per_ut):
+            # HANYA gambar garis jika rate memenuhi syarat R_MIN
             if rate >= R_MIN:
-            # Tentukan warna garis (hijau jika QoS >= R_MIN, merah jika tidak)
-                line_color = 'green'
-
-            # Plot garis antara pengguna dan satelit jika QoS memenuhi syarat
-                ax.plot([x_users[i], x_sats[j]], 
-                    [y_users[i], y_sats[j]], 
-                    color=line_color, linewidth=2)
+                # Plot garis hijau antara pengguna dan satelit yang memenuhi syarat
+                ax.plot([x_users[i], x_sats[j]],
+                        [y_users[i], y_sats[j]],
+                        color='green',
+                        linewidth=1.5,
+                        linestyle='-')
 
     # Pengaturan plot
-    ax.set_title("Visualisasi Satelit dan Pengguna dengan QoS", fontsize=14)
+    ax.set_title("Visualisasi Koneksi Satelit dan Pengguna Berdasarkan QoS", fontsize=14)
     ax.set_xlabel("Posisi X", fontsize=12)
     ax.set_ylabel("Posisi Y", fontsize=12)
-    ax.grid(True)
+    ax.grid(True, linestyle='--', alpha=0.6)
     ax.legend()
+    ax.set_xlim(0, 11)
+    ax.set_ylim(0, 11)
 
     # Menampilkan plot dengan Streamlit
     st.pyplot(fig)

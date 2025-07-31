@@ -116,7 +116,7 @@ if __name__ == "__main__":
     print("Menjalankan build_dataset.py sebagai skrip mandiri...")
     
     # Contoh konfigurasi untuk pengujian
-    N_SATS_TO_TEST = [1, 2]
+    N_SATS_TO_TEST = [2, 6]
     N_SAMPLES_TO_TEST = 50 # Jumlah sampel lebih kecil untuk tes cepat
     SAVE_DIRECTORY_TEST = "data/raw" # Simpan ke subfolder lokal
     UT_COUNT_TEST = 5

@@ -103,7 +103,7 @@ if __name__ == "__main__":
     print("Menjalankan channel_features.py sebagai skrip mandiri...")
 
     # Contoh konfigurasi untuk pengujian
-    N_SATS_TO_TEST = [1, 2] # Daftar satelit yang akan diproses
+    N_SATS_TO_TEST = [2, 6] # Daftar satelit yang akan diproses
     RAW_DIR_TEST = "data/raw"
     PROCESSED_DIR_TEST = "data/processed"
     UT_COUNT_TEST = 5

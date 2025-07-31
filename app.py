@@ -13,7 +13,7 @@ if simulation_path not in sys.path:
 try:
     # Impor SATU FUNGSI UTAMA dari file plotting Anda
     from plotting_dashboard import run_all_plots 
-    from config import R_MIN_THRESHOLD
+    from config import R_MIN
     print("✅ Modul plotting dan konfigurasi berhasil diimpor.")
 except ImportError as e:
     st.error(f"❌ Gagal mengimpor dari 'plotting_dashboard.py' atau 'config.py'.")
@@ -40,7 +40,7 @@ run_all_plots(
     model_results_dir=model_results_dir,
     baseline_results_dir=baseline_results_dir,
     raw_data_dir=raw_data_dir,
-    r_min=R_MIN_THRESHOLD
+    r_min=R_MIN
 )
 
 # --- Footer ---

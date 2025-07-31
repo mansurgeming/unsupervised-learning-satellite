@@ -2,12 +2,13 @@
 # Pusat semua konfigurasi untuk pipeline dan dashboard.
 
 # --- Konfigurasi Pipeline ---
-SATELLITE_LIST = [1, 2, 6, 10]
+SATELLITE_LIST = [2, 6]
 NUM_SAMPLES = 1000
 UT_COUNT = 5
+K = 5
 
 # --- Konfigurasi Simulasi & Pengujian ---
-R_MIN_THRESHOLD = 0.35  # <-- Nilai Rk_min Anda di sini
+R_MIN = 0.35  # <-- Nilai Rk_min Anda di sini
 P_MAX = 300.0
 
 # --- Direktori (Opsional, tapi rapi) ---

@@ -67,17 +67,17 @@ if __name__ == '__main__':
         sys.path.append(project_root)
         
         # Impor konfigurasi secara dinamis
-        from config import SATELLITE_LIST, R_MIN_THRESHOLD, RESULTS_MODEL_DIR, RESULTS_BASELINE_DIR
+        from config import SATELLITE_LIST, R_MIN, RESULTS_MODEL_DIR, RESULTS_BASELINE_DIR
         
         M_LIST_TEST = SATELLITE_LIST
-        R_MIN_TEST = R_MIN_THRESHOLD
+        R_MIN_TEST = R_MIN
         MODEL_DIR_TEST = RESULTS_MODEL_DIR
         BASELINE_DIR_TEST = RESULTS_BASELINE_DIR
 
     except ImportError:
         print("❌ Gagal mengimpor dari config.py. Menggunakan nilai default untuk pengujian.")
         # Konfigurasi fallback jika config.py tidak ditemukan
-        M_LIST_TEST = [1, 6]
+        M_LIST_TEST = [2, 6]
         R_MIN_TEST = 0.5
         MODEL_DIR_TEST = "results/model_results"
         BASELINE_DIR_TEST = "results/baseline_results"

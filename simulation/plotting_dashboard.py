@@ -1,208 +1,363 @@
-# Nama file: simulation/plotting_dashboard.py
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import json
 import os
+import matplotlib
 import streamlit as st
-import re
-import sys
+matplotlib.use('Agg')  # Ganti dengan Qt5Agg jika TkAgg tidak berhasil
 
-# ================================================
-# Fungsi 1: Plot CDF (dari cdf_plot.py)
-# ================================================
-def plot_cdf(base_dir, model_dir, m_list_options, r_min):
-    st.subheader("1. CDF Data Rate per Pengguna (UT)")
-    m_choice = st.selectbox(
-        "Pilih konfigurasi satelit untuk melihat CDF:",
-        options=m_list_options,
-        key="cdf_selector"
-    )
-    if not m_choice: return
+from config import SATELLITE_LIST, R_MIN, UT_COUNT
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    baseline_path = os.path.join(base_dir, f"test_result_{m_choice}sat.csv")
-    model_path = os.path.join(model_dir, f"test_result_{m_choice}sat.csv")
 
-    if not os.path.exists(baseline_path) or not os.path.exists(model_path):
-        st.warning(f"Data CDF untuk {m_choice} satelit tidak ditemukan."); return
+# ================================
+# Plot CDF per M dalam format 3x2
+# ================================
+def plot_cdf(model_dir, baseline_dir):
+    fig, axs = plt.subplots(3, 2, figsize=(14, 12))
+    axs = axs.flatten()
 
-    def load_rates(path):
-        df = pd.read_csv(path)
-        all_rates = [rate for r_str in df['rate_per_ut'] for rate in json.loads(r_str)]
-        all_rates_sorted = np.sort(all_rates)
-        return all_rates_sorted, np.arange(1, len(all_rates_sorted) + 1) / len(all_rates_sorted)
+    for idx, M in enumerate(SATELLITE_LIST):
+        baseline_path = os.path.join(baseline_dir, f"test_result_{M}sat.csv")
+        model_path = os.path.join(model_dir, f"test_result_{M}sat.csv")
 
-    x_base, y_base = load_rates(baseline_path)
-    x_model, y_model = load_rates(model_path)
+        if not os.path.exists(baseline_path) or not os.path.exists(model_path):
+            continue
 
-    ax.plot(x_base, y_base, label="Baseline", linestyle='--'); ax.plot(x_model, y_model, label="Model")
-    ax.axvline(x=r_min, color='red', linestyle=':', linewidth=1.5, label=f"R_min={r_min}")
-    ax.set_title(f"CDF of Data Rate ({m_choice} Satelit)"); ax.set_xlabel("Rate per UT (bps/Hz)")
-    ax.set_ylabel("CDF"); ax.grid(True, alpha=0.5); ax.legend(); st.pyplot(fig)
+        def load_rates(path):
+            df = pd.read_csv(path)
+            all_rates = []
+            for r_str in df['rate_per_ut']:
+                rates = json.loads(r_str)
+                all_rates.extend(rates)
+            all_rates = np.array(all_rates)
+            all_rates_sorted = np.sort(all_rates)
+            cdf = np.arange(1, len(all_rates_sorted)+1) / len(all_rates_sorted)
+            return all_rates_sorted, cdf
 
-# ================================================
-# Fungsi 2: Plot Perbandingan QoS (dari qos_comparison_plot.py)
-# ================================================
-def plot_qos_comparison(base_dir, model_dir, m_list, num_ut):
-    st.subheader("2. Rata-rata Tingkat Kepuasan QoS")
-    data = []
-    for M in m_list:
-        try:
-            df_model = pd.read_csv(os.path.join(model_dir, f"test_result_{M}sat.csv"))
-            df_baseline = pd.read_csv(os.path.join(base_dir, f"test_result_{M}sat.csv"))
-            avg_model = (df_model["qos_count"] / num_ut).mean()
-            avg_baseline = (df_baseline["qos_count"] / num_ut).mean()
-            data.append({"Satelit": str(M), "Model": avg_model, "Baseline": avg_baseline})
-        except (FileNotFoundError, pd.errors.EmptyDataError):
-            st.warning(f"Data QoS untuk {M} satelit tidak ditemukan atau kosong.")
-    if data:
-        df_qos = pd.DataFrame(data).set_index("Satelit"); st.bar_chart(df_qos)
-        st.caption("Grafik menunjukkan fraksi rata-rata pengguna yang memenuhi target QoS (nilai 1.0 = 100%).")
+        # Load data
+        x_base, y_base = load_rates(baseline_path)
+        x_model, y_model = load_rates(model_path)
 
-# ================================================
-# Fungsi 3: Plot Rata-rata TOTAL Daya Transmit (dari avg_transmit_plot.py)
-# ================================================
-def plot_avg_total_power(base_dir, model_dir, m_list):
-    st.subheader("3. Rata-rata Total Daya Transmit (Seluruh Sistem)")
-    data = []
-    for M in m_list:
-        try:
-            df_model = pd.read_csv(os.path.join(model_dir, f"test_result_{M}sat.csv"))
-            avg_power_model = df_model["power_per_sat"].apply(lambda x: sum(json.loads(x))).mean()
-            df_baseline = pd.read_csv(os.path.join(base_dir, f"test_result_{M}sat.csv"))
-            avg_power_baseline = df_baseline["power_per_sat"].apply(lambda x: sum(json.loads(x))).mean()
-            data.append({"Satelit": str(M), "Model": avg_power_model, "Baseline": avg_power_baseline})
-        except (FileNotFoundError, pd.errors.EmptyDataError):
-            st.warning(f"Data Total Daya untuk {M} satelit tidak ditemukan atau kosong.")
-    if data:
-        df_power = pd.DataFrame(data).set_index("Satelit"); st.bar_chart(df_power)
-        st.caption("Grafik menunjukkan total daya rata-rata yang dikeluarkan oleh semua satelit dalam satu waktu (Watt).")
+        # Plot
+        axs[idx].plot(x_base, y_base, label="Baseline")
+        axs[idx].plot(x_model, y_model, label="Model")
+        axs[idx].axvline(x=R_MIN, color='red', linestyle='--', linewidth=1, label="R_min" if idx == 0 else "")
+        axs[idx].set_title(f"Satellites = {M}")
+        axs[idx].set_xlabel("Rate per UT (bps)")
+        axs[idx].set_ylabel("CDF")
+        axs[idx].grid(True)
+        axs[idx].legend()
 
-# ================================================
-# Fungsi 4: Plot Rata-rata Daya PER SATELIT (dari avg_transmit_per_satelite_plot.py)
-# ================================================
-def plot_avg_power_per_satellite(base_dir, model_dir, m_list):
-    st.subheader("4. Rata-rata Daya yang Digunakan per Satelit")
-    data = []
-    for M in m_list:
-        try:
-            df_model = pd.read_csv(os.path.join(model_dir, f"test_result_{M}sat.csv"))
-            avg_total_power_model = df_model["power_per_sat"].apply(lambda x: sum(json.loads(x))).mean()
-            avg_per_satellite_model = avg_total_power_model / M
-            df_baseline = pd.read_csv(os.path.join(base_dir, f"test_result_{M}sat.csv"))
-            avg_total_power_baseline = df_baseline["power_per_sat"].apply(lambda x: sum(json.loads(x))).mean()
-            avg_per_satellite_baseline = avg_total_power_baseline / M
-            data.append({"Satelit": str(M), "Model": avg_per_satellite_model, "Baseline": avg_per_satellite_baseline})
-        except (FileNotFoundError, pd.errors.EmptyDataError, ZeroDivisionError):
-            st.warning(f"Data Daya per Satelit untuk {M} satelit tidak ditemukan/valid.")
-    if data:
-        df_power = pd.DataFrame(data).set_index("Satelit"); st.bar_chart(df_power)
-        st.caption("Grafik menunjukkan daya rata-rata yang dikeluarkan oleh satu satelit (Watt).")
+    plt.tight_layout()
+    # Tampilkan plot dengan Streamlit
+    st.pyplot(fig)
 
-# ================================================
-# Fungsi 5: Plot Total Network Throughput (dari total_network_throughput_plot.py)
-# ================================================
-def plot_avg_network_throughput(base_dir, model_dir, m_list):
-    st.subheader("5. Rata-rata Total Network Throughput")
-    def compute_avg_throughput(file_path):
-        df = pd.read_csv(file_path)
-        total_per_sample = [sum(sorted(json.loads(r_str), reverse=True)[:int(qos_count)]) for r_str, qos_count in zip(df["rate_per_ut"], df["qos_count"])]
-        return np.mean(total_per_sample)
-    data = []
-    for M in m_list:
-        try:
-            avg_throughput_model = compute_avg_throughput(os.path.join(model_dir, f"test_result_{M}sat.csv"))
-            avg_throughput_baseline = compute_avg_throughput(os.path.join(base_dir, f"test_result_{M}sat.csv"))
-            data.append({"Satelit": str(M), "Model": avg_throughput_model, "Baseline": avg_throughput_baseline})
-        except (FileNotFoundError, pd.errors.EmptyDataError):
-            st.warning(f"Data Throughput untuk {M} satelit tidak ditemukan atau kosong.")
-    if data:
-        df_throughput = pd.DataFrame(data).set_index("Satelit"); st.bar_chart(df_throughput)
-        st.caption("Grafik menunjukkan jumlah total data rate rata-rata dari pengguna yang memenuhi target QoS (bps/Hz).")
 
-# ================================================
-# Fungsi 6: Plot Tata Letak Sampel QoS Terbaik (dari position_plot.py)
-# ================================================
-def plot_best_qos_sample_layout(model_results_dir, raw_data_dir, m_choice):
-    try:
-        results_path = os.path.join(model_results_dir, f"test_result_{m_choice}sat.csv")
-        df_results = pd.read_csv(results_path)
-        if df_results.empty: st.warning("File hasil kosong."); return
-        best_row = df_results.loc[df_results['qos_count'].idxmax()]
-        best_sample_id = int(best_row['sample_id'])
-        best_qos_count = int(best_row['qos_count'])
+# ================================
+# AVG TOTAL TRANSMIT POWER VS NUMBER OF SATELLITES
+# ================================
+def plot_avg_total_power(model_dir, baseline_dir):
+    def compute_avg_total_power(folder_path):
+        avg_power = []
+        for M in SATELLITE_LIST:
+            file_path = os.path.join(folder_path, f"test_result_{M}sat.csv")
+            if not os.path.exists(file_path):
+                avg_power.append(np.nan)
+                continue
+            df = pd.read_csv(file_path)
+            total_power_samples = []
+            for p_str in df["power_per_sat"]:
+                power_list = json.loads(p_str) if isinstance(p_str, str) else []
+                total_power = sum(power_list)
+                total_power_samples.append(total_power)
+            avg_power.append(np.mean(total_power_samples))
+        return avg_power
 
-        raw_path = os.path.join(raw_data_dir, f"test_data_{m_choice}sats.csv")
-        df_raw = pd.read_csv(raw_path)
-        sample_df = df_raw[df_raw['sample_id'] == best_sample_id]
-        if sample_df.empty: st.warning(f"Data posisi untuk sample_id {best_sample_id} tidak ditemukan."); return
-        
-        ut_positions = sample_df[['ut_lon', 'ut_lat']].drop_duplicates()
-        first_row = sample_df.iloc[0]
-        sat_lons = [first_row[f'sat_{i}_lon'] for i in range(1, m_choice + 1)]
-        sat_lats = [first_row[f'sat_{i}_lat'] for i in range(1, m_choice + 1)]
+    avg_power_model = compute_avg_total_power(model_dir)
+    avg_power_baseline = compute_avg_total_power(baseline_dir)
 
-        fig, ax = plt.subplots(figsize=(8, 8))
-        ax.scatter(ut_positions['ut_lon'], ut_positions['ut_lat'], marker='o', color='blue', s=50, label='Users (UT)')
-        ax.scatter(sat_lons, sat_lats, marker='^', color='red', s=150, edgecolors='black', label='Satellites')
-        ax.set_title(f"Tata Letak Sampel QoS Terbaik ({m_choice} Satelit)\nID: {best_sample_id} | QoS: {best_qos_count}/{len(ut_positions)}")
-        ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude"); ax.legend(); ax.grid(True, linestyle='--', alpha=0.6)
-        ax.set_aspect('equal', adjustable='box'); fig.tight_layout(); st.pyplot(fig)
-    except FileNotFoundError: st.error(f"File yang dibutuhkan untuk plot tata letak tidak ditemukan.")
-    except Exception as e: st.error(f"Terjadi kesalahan saat membuat plot tata letak: {e}")
+    x = np.arange(len(SATELLITE_LIST))
+    width = 0.35
 
-# ================================================
-# Fungsi Utama untuk Menjalankan Semua Plot
-# ================================================
-def run_all_plots(model_results_dir, baseline_results_dir, raw_data_dir, r_min):
-    st.header("Visualisasi Hasil Analisis Batch")
-
-    if not os.path.exists(model_results_dir) or not os.path.exists(baseline_results_dir):
-        st.error(f"Direktori hasil tidak ditemukan. Jalankan `master_runner.py` terlebih dahulu."); return
-
-    available_sats = []
-    for f in os.listdir(model_results_dir):
-        if f.startswith("test_result_") and f.endswith("sat.csv"):
-            try:
-                num = int(re.search(r'_(\d+)sat\.csv', f).group(1))
-                if os.path.exists(os.path.join(baseline_results_dir, f)): available_sats.append(num)
-            except (AttributeError, ValueError): continue
-    available_sats = sorted(list(set(available_sats)))
-    if not available_sats: st.warning("Tidak ada file hasil pengujian yang cocok ditemukan."); return
-
-    st.markdown("### Plot Agregat (Perbandingan Kinerja Rata-rata)")
-    m_list_agregat = st.multiselect("Pilih konfigurasi satelit untuk plot perbandingan:", options=available_sats, default=available_sats)
+    # Membuat objek 'fig' untuk plot
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    if m_list_agregat:
-        NUM_UT = 5
-        plot_qos_comparison(baseline_results_dir, model_results_dir, m_list_agregat, NUM_UT)
-        st.divider()
-        plot_avg_total_power(baseline_results_dir, model_results_dir, m_list_agregat)
-        st.divider()
-        plot_avg_power_per_satellite(baseline_results_dir, model_results_dir, m_list_agregat)
-        st.divider()
-        plot_avg_network_throughput(baseline_results_dir, model_results_dir, m_list_agregat)
+    bars1 = ax.bar(x - width/2, avg_power_model, width, label="Model", color='salmon', edgecolor='black')
+    bars2 = ax.bar(x + width/2, avg_power_baseline, width, label="Baseline", color='skyblue', edgecolor='black')
 
-    st.divider()
-    st.markdown("### Analisis Detail per Konfigurasi")
-    plot_cdf(baseline_results_dir, model_results_dir, available_sats, r_min)
-    st.divider()
-    with st.expander("Lihat Tata Letak Geografis Sampel Terbaik"):
-        m_choice_layout = st.selectbox("Pilih konfigurasi untuk dilihat:", options=available_sats)
-        if m_choice_layout: plot_best_qos_sample_layout(model_results_dir, raw_data_dir, m_choice_layout)
+    ax.plot(x - width/2, avg_power_model, color='darkred', marker='o', linestyle='--')
+    ax.plot(x + width/2, avg_power_baseline, color='steelblue', marker='s', linestyle='--')
 
-# ================================================
-# Blok Eksekusi Mandiri (untuk testing)
-# ================================================
-if __name__ == '__main__':
-    st.info("Menjalankan `plotting_dashboard.py` dalam mode mandiri untuk debug.")
-    try:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
-        sys.path.append(project_root)
-        from config import R_MIN_THRESHOLD, RESULTS_MODEL_DIR, RESULTS_BASELINE_DIR, RAW_DATA_DIR
-        run_all_plots(RESULTS_MODEL_DIR, RESULTS_BASELINE_DIR, RAW_DATA_DIR, R_MIN_THRESHOLD)
-    except ImportError:
-        st.error("Gagal memuat `config.py`. Pastikan file config ada di folder root.")
+    for i in range(len(SATELLITE_LIST)):
+        if not np.isnan(avg_power_model[i]):
+            ax.text(x[i] - width/2, avg_power_model[i] + 0.03 * max(avg_power_model), f"{avg_power_model[i]:.1f}", ha='center')
+        if not np.isnan(avg_power_baseline[i]):
+            ax.text(x[i] + width/2, avg_power_baseline[i] + 0.03 * max(avg_power_baseline), f"{avg_power_baseline[i]:.1f}", ha='center')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(SATELLITE_LIST)
+    ax.set_xlabel("Number of Satellites (M)", fontsize=12)
+    ax.set_ylabel("Average Total Power Usage (Watt)", fontsize=12)
+    ax.set_title("Comparison of Total Power Usage vs. Satellite Count", fontsize=14)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+    ax.legend()
+    
+    # Tampilkan plot dengan Streamlit
+    st.pyplot(fig)
+
+
+# ================================
+# AVG TOTAL TRANSMIT POWER PER SATELLITE VS NUMBER OF SATELLITES
+# ================================
+def plot_avg_power_per_sat(model_dir, baseline_dir):
+    def compute_avg_power_per_sat(folder_path):
+        avg_per_sat = []
+        for M in SATELLITE_LIST:
+            file_path = os.path.join(folder_path, f"test_result_{M}sat.csv")
+            if not os.path.exists(file_path):
+                avg_per_sat.append(np.nan)
+                continue
+
+            df = pd.read_csv(file_path)
+            total_power_list = df["power_per_sat"].apply(lambda x: sum(json.loads(x))).values
+            avg_total = np.mean(total_power_list)
+            avg_per_sat.append(avg_total / M)
+        return avg_per_sat
+
+    avg_model = compute_avg_power_per_sat(model_dir)
+    avg_baseline = compute_avg_power_per_sat(baseline_dir)
+
+    x = np.arange(len(SATELLITE_LIST))
+    width = 0.35
+
+    # Membuat objek 'fig' untuk plot
+    fig, ax = plt.subplots(figsize=(10, 6))  # Inisialisasi 'fig' di sini
+
+    bars1 = ax.bar(x - width/2, avg_model, width, label="Model", color='salmon', edgecolor='black')
+    bars2 = ax.bar(x + width/2, avg_baseline, width, label="Baseline", color='skyblue', edgecolor='black')
+
+    ax.plot(x - width/2, avg_model, color='darkred', marker='o', linestyle='--')
+    ax.plot(x + width/2, avg_baseline, color='steelblue', marker='s', linestyle='--')
+
+    for i in range(len(SATELLITE_LIST)):
+        if not np.isnan(avg_model[i]):
+            ax.text(x[i] - width/2, avg_model[i] + 0.03 * max(avg_model), f"{avg_model[i]:.1f}", ha='center')
+        if not np.isnan(avg_baseline[i]):
+            ax.text(x[i] + width/2, avg_baseline[i] + 0.03 * max(avg_baseline), f"{avg_baseline[i]:.1f}", ha='center')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(SATELLITE_LIST)
+    ax.set_xlabel("Number of Satellites (M)", fontsize=12)
+    ax.set_ylabel("Average Power per Satellite (Watt)", fontsize=12)
+    ax.set_title("Comparison of Average Power per Satellite vs. Satellite Count", fontsize=14)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+    ax.legend()
+
+    # Tampilkan plot dengan Streamlit
+    st.pyplot(fig)
+
+
+# ================================
+# QOS COMPARISON
+# ================================
+def plot_qos_comparison(model_dir, baseline_dir):
+    def compute_qos_stats(folder_path):
+        avg_list = []
+        std_list = []
+        for M in SATELLITE_LIST:
+            file_path = os.path.join(folder_path, f"test_result_{M}sat.csv")
+            if not os.path.exists(file_path):
+                avg_list.append(np.nan)
+                std_list.append(0)
+                continue
+            df = pd.read_csv(file_path)
+            qos_fraction = df["qos_count"] / 5
+            avg_list.append(qos_fraction.mean())
+            std_list.append(qos_fraction.std())
+        return avg_list, std_list
+
+    avg_model, std_model = compute_qos_stats(model_dir)
+    avg_baseline, std_baseline = compute_qos_stats(baseline_dir)
+
+    x = np.arange(len(SATELLITE_LIST))
+    width = 0.35
+
+    # Membuat objek 'fig' untuk plot
+    fig, ax = plt.subplots(figsize=(10, 6))  # Inisialisasi 'fig' di sini
+
+    bars1 = ax.bar(x - width/2, avg_model, width, yerr=std_model, capsize=6,
+                    label="Model", color='salmon', edgecolor='black')
+    bars2 = ax.bar(x + width/2, avg_baseline, width, yerr=std_baseline, capsize=6,
+                    label="Baseline", color='skyblue', edgecolor='black')
+
+    for i in range(len(SATELLITE_LIST)):
+        if not np.isnan(avg_model[i]):
+            ax.text(x[i] - width/2, avg_model[i] + 0.03, f"{avg_model[i]:.2f}", ha='center')
+        if not np.isnan(avg_baseline[i]):
+            ax.text(x[i] + width/2, avg_baseline[i] + 0.03, f"{avg_baseline[i]:.2f}", ha='center')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(SATELLITE_LIST)
+    ax.set_xlabel("Number of Satellites (M)", fontsize=12)
+    ax.set_ylabel("Average QoS Satisfaction Rate", fontsize=12)
+    ax.set_title("QoS Satisfaction Rate vs. Satellite Count", fontsize=14)
+    ax.set_ylim(0, 1.1)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+    ax.legend()
+
+    # Tampilkan plot dengan Streamlit
+    st.pyplot(fig)
+
+
+# ================================
+# TOTAL NETWORK THROUGHPUT
+# ================================
+def plot_total_network_throughput(model_dir, baseline_dir):
+    def compute_avg_throughput(folder_path):
+        avg_throughput = []
+        for M in SATELLITE_LIST:
+            file_path = os.path.join(folder_path, f"test_result_{M}sat.csv")
+            if not os.path.exists(file_path):
+                avg_throughput.append(np.nan)
+                continue
+
+            df = pd.read_csv(file_path)
+            total_per_sample = []
+            for r_str, i_str in zip(df["rate_per_ut"], df["qos_count"]):
+                rates = json.loads(r_str) if isinstance(r_str, str) else []
+                total = sum(rates[:int(i_str)]) if isinstance(rates, list) else 0
+                total_per_sample.append(total)
+            avg_throughput.append(np.mean(total_per_sample))
+        return avg_throughput
+
+    avg_model = compute_avg_throughput(model_dir)
+    avg_baseline = compute_avg_throughput(baseline_dir)
+
+    x = np.arange(len(SATELLITE_LIST))
+    width = 0.35
+
+    # Membuat objek 'fig' untuk plot
+    fig, ax = plt.subplots(figsize=(10, 6))  # Inisialisasi 'fig' di sini
+
+    bars1 = ax.bar(x - width/2, avg_model, width, label="Model", color='salmon', edgecolor='black')
+    bars2 = ax.bar(x + width/2, avg_baseline, width, label="Baseline", color='skyblue', edgecolor='black')
+
+    ax.plot(x - width/2, avg_model, color='darkred', marker='o', linestyle='--')
+    ax.plot(x + width/2, avg_baseline, color='steelblue', marker='s', linestyle='--')
+
+    for i in range(len(SATELLITE_LIST)):
+        if not np.isnan(avg_model[i]):
+            ax.text(x[i] - width/2, avg_model[i] + 0.03 * max(avg_model), f"{avg_model[i]:.2f}", ha='center')
+        if not np.isnan(avg_baseline[i]):
+            ax.text(x[i] + width/2, avg_baseline[i] + 0.03 * max(avg_baseline), f"{avg_baseline[i]:.2f}", ha='center')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(SATELLITE_LIST)
+    ax.set_xlabel("Number of Satellites (M)", fontsize=12)
+    ax.set_ylabel("Average Total Throughput (bps)", fontsize=12)
+    ax.set_title("Comparison of Total Network Throughput vs. Satellite Count", fontsize=14)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+    ax.legend()
+
+    # Tampilkan plot dengan Streamlit
+    st.pyplot(fig)
+
+
+def plot_satelite_vs_user(satellite_count, user_count, sample_data):
+    """
+    Fungsi ini akan menampilkan visualisasi jumlah satelit dalam bentuk segitiga 
+    dan jumlah pengguna dalam bentuk lingkaran dengan garis menghubungkan 
+    satelit dan pengguna berdasarkan QoS.
+
+    :param satellite_count: Jumlah satelit (integer)
+    :param user_count: Jumlah pengguna (integer)
+    :param sample_data: Data sampel yang berisi informasi QoS dan hubungan antara pengguna dan satelit
+    """
+    # Tentukan posisi satelit dan pengguna
+    x_sats = np.random.uniform(1, 10, size=satellite_count)  # Posisi X satelit
+    y_sats = np.random.uniform(1, 10, size=satellite_count)  # Posisi Y satelit
+
+    x_users = np.random.uniform(1, 10, size=user_count)  # Posisi X pengguna
+    y_users = np.random.uniform(1, 10, size=user_count)  # Posisi Y pengguna
+
+    # Membuat plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Plot satelit (segitiga)
+    ax.scatter(x_sats, y_sats, color='blue', marker='^', s=100, label="Satelit", edgecolors='black')
+
+    # Plot pengguna (lingkaran)
+    ax.scatter(x_users, y_users, color='red', marker='o', s=100, label="Pengguna", edgecolors='black')
+
+    # Menghubungkan pengguna dengan semua satelit yang memenuhi QoS
+    for i in range(user_count):
+        # Ambil data rate_per_ut untuk pengguna tertentu
+        rate_per_ut = json.loads(sample_data['rate_per_ut'][i])  # Menyesuaikan format dari rate_per_ut
+
+        # Looping untuk setiap satelit yang terhubung dengan pengguna jika rate_per_ut >= R_MIN
+        for j, rate in enumerate(rate_per_ut):
+            if rate >= R_MIN:
+            # Tentukan warna garis (hijau jika QoS >= R_MIN, merah jika tidak)
+                line_color = 'green'
+
+            # Plot garis antara pengguna dan satelit jika QoS memenuhi syarat
+                ax.plot([x_users[i], x_sats[j]], 
+                    [y_users[i], y_sats[j]], 
+                    color=line_color, linewidth=2)
+
+    # Pengaturan plot
+    ax.set_title("Visualisasi Satelit dan Pengguna dengan QoS", fontsize=14)
+    ax.set_xlabel("Posisi X", fontsize=12)
+    ax.set_ylabel("Posisi Y", fontsize=12)
+    ax.grid(True)
+    ax.legend()
+
+    # Menampilkan plot dengan Streamlit
+    st.pyplot(fig)
+
+
+# ================================
+# Fungsi utama untuk menjalankan semua plot
+# ================================
+def run_all_plots(model_results_dir, baseline_results_dir, raw_data_dir, r_min):
+    # Mengambil jumlah pengguna dan jumlah satelit dari config.py
+    user_count = UT_COUNT
+    
+    # Menjalankan plot lainnya
+    plot_cdf(model_results_dir, baseline_results_dir)
+    plot_avg_total_power(model_results_dir, baseline_results_dir)
+    plot_avg_power_per_sat(model_results_dir, baseline_results_dir)
+    plot_qos_comparison(model_results_dir, baseline_results_dir)
+    plot_total_network_throughput(model_results_dir, baseline_results_dir)
+    
+    # Variabel untuk menyimpan jumlah satelit terbaik
+    best_satellite_count = None
+    best_qos_count = 0
+    best_total_rate = 0
+    
+    # Melakukan loop untuk mencari jumlah satelit terbaik
+    for satellite_count in SATELLITE_LIST:  # Looping berdasarkan konfigurasi SATELLITE_LIST
+        print(f"📊 Menjalankan pengujian untuk {satellite_count} satelit...")
+
+        # Ambil data sample yang berisi informasi QoS
+        sample_data = pd.read_csv(os.path.join(model_results_dir, f"test_result_{satellite_count}sat.csv"))  # Sesuaikan dengan data yang ada
+        qos_data = sample_data[['sample_id', 'rate_per_ut']]  # Ambil kolom yang relevan untuk rate_per_ut
+
+        # Hitung jumlah pengguna dengan QoS terbaik (QoS = 1)
+        qos_count = sum([1 for rates in qos_data['rate_per_ut'] if any(rate >= R_MIN for rate in json.loads(rates))])
+
+        # Hitung total rate untuk kriteria lainnya, misalnya:
+        total_rate = qos_count  # Total QoS terhubung, bisa disesuaikan sesuai kebutuhan
+
+        # Update jika jumlah satelit ini lebih baik
+        if qos_count > best_qos_count or (qos_count == best_qos_count and total_rate > best_total_rate):
+            best_qos_count = qos_count
+            best_total_rate = total_rate
+            best_satellite_count = satellite_count
+
+    print(f"🔑 Jumlah satelit terbaik adalah: {best_satellite_count} satelit dengan QoS = {best_qos_count}")
+
+    # Menjalankan plot untuk jumlah satelit terbaik
+    plot_satelite_vs_user(best_satellite_count, user_count, sample_data)
+

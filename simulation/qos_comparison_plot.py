@@ -88,7 +88,7 @@ if __name__ == '__main__':
     except ImportError:
         print("❌ Could not import from config.py. Using default fallback values for testing.")
         # Fallback configuration if config.py is not found
-        M_LIST_TEST = [1, 6]
+        M_LIST_TEST = [2, 6]
         UT_COUNT_TEST = 5
         MODEL_DIR_TEST = "results/model_results"
         BASELINE_DIR_TEST = "results/baseline_results"

@@ -267,19 +267,19 @@ def plot_total_network_throughput(model_dir, baseline_dir):
 def plot_5_users_from_best_sample(satellite_count, best_sample_row, R_MIN):
     """
     Memvisualisasikan 5 pengguna dari satu sample_id terbaik.
-    Warna garis ditentukan oleh status QoS setiap pengguna.
+    - Pengguna QoS terpenuhi: Lingkaran hijau dengan garis hijau ke semua satelit.
+    - Pengguna QoS tidak terpenuhi: Lingkaran merah tanpa garis.
 
     :param satellite_count: Jumlah satelit dari konfigurasi tempat sampel terbaik ditemukan.
     :param best_sample_row: Satu baris Series pandas yang berisi data sampel terbaik.
     :param R_MIN: Nilai ambang batas rate.
     """
-    USER_COUNT = 5  # Jumlah pengguna tetap 5
+    USER_COUNT = 5
     sample_id = best_sample_row.name
     
     print(f"\n🎨 Memulai visualisasi untuk 5 pengguna dari sample_id terbaik: {sample_id}")
     print(f"   Pada konfigurasi {satellite_count} satelit.")
 
-    # Ambil array rate untuk 5 pengguna dari baris terbaik
     rates_for_5_users = json.loads(best_sample_row['rate_per_ut'])
 
     # Tentukan posisi acak yang konsisten
@@ -291,25 +291,35 @@ def plot_5_users_from_best_sample(satellite_count, best_sample_row, R_MIN):
 
     # Membuat plot
     fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(x_users, y_users, color='red', marker='o', s=100, label="Pengguna", edgecolors='black', zorder=10)
+    
+    # Plot Satelit (selalu ada)
     ax.scatter(x_sats, y_sats, color='blue', marker='^', s=150, label="Satelit", edgecolors='black', zorder=5)
 
-    # Loop untuk setiap 5 PENGGUNA
+    # --- LOGIKA PLOTTING PENGGUNA YANG DIPERBAIKI ---
     for i in range(USER_COUNT):
         user_rate = rates_for_5_users[i]
         
-        # Tentukan warna untuk PENGGUNA ini berdasarkan rate-nya
+        # KONDISI 1: Pengguna memenuhi syarat QoS
         if user_rate >= R_MIN:
-            line_color = 'green'
-        else:
-            line_color = 'yellow'
+            # Gambar pengguna ini dengan warna HIJAU
+            ax.scatter(x_users[i], y_users[i], color='green', marker='o', s=100, edgecolors='black', zorder=10)
             
-        # Gambar garis dari pengguna ini ke SEMUA satelit dengan warna yang sudah ditentukan
-        for j in range(satellite_count):
-            ax.plot([x_users[i], x_sats[j]],
-                    [y_users[i], y_sats[j]],
-                    color=line_color,
-                    linewidth=1.5)
+            # Gambar garis HIJAU dari pengguna ini ke SEMUA satelit
+            for j in range(satellite_count):
+                ax.plot([x_users[i], x_sats[j]],
+                        [y_users[i], y_sats[j]],
+                        color='green',
+                        linewidth=1.5)
+        
+        # KONDISI 2: Pengguna TIDAK memenuhi syarat QoS
+        else:
+            # Gambar pengguna ini dengan warna MERAH
+            ax.scatter(x_users[i], y_users[i], color='red', marker='o', s=100, edgecolors='black', zorder=10)
+            # TIDAK ADA GARIS YANG DIGAMBAR
+
+    # Membuat legenda secara manual agar tidak duplikat
+    ax.scatter([], [], color='green', marker='o', s=100, edgecolors='black', label='Pengguna (QoS Terpenuhi)')
+    ax.scatter([], [], color='red', marker='o', s=100, edgecolors='black', label='Pengguna (QoS Tdk Terpenuhi)')
 
     # Pengaturan detail plot
     ax.set_title(f"Visualisasi 5 Pengguna dari Sampel Terbaik (ID: {sample_id})", fontsize=16)

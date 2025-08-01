@@ -288,7 +288,7 @@ def plot_satelite_vs_user(satellite_count, user_count, sample_data):
 
     # Plot satelit (segitiga biru)
     ax.scatter(x_users, y_users, color='blue', marker='^', s=120, label="Satelit", edgecolors='black', zorder=5)
-    ax.scatter(x_sats, y_sats, color='red', marker='o', s=100, label="Pengguna", edgecolors='black', zorder=5)
+    ax.scatter(x_sats, y_sats, color='green', marker='o', s=100, label="Pengguna", edgecolors='black', zorder=5)
 
     # Plot pengguna (lingkaran merah)
     

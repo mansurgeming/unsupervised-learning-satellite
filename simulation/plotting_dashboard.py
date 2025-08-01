@@ -264,64 +264,65 @@ def plot_total_network_throughput(model_dir, baseline_dir):
     st.pyplot(fig)
 
 
-def plot_satelite_vs_user(satellite_count, user_count, sample_data):
+def plot_5_users_from_best_sample(satellite_count, best_sample_row, R_MIN):
     """
-    Fungsi ini akan menampilkan visualisasi jumlah satelit (segitiga)
-    dan jumlah pengguna (lingkaran). Garis hijau akan menghubungkan pengguna
-    ke setiap satelit yang memenuhi syarat QoS (rate >= R_MIN).
+    Memvisualisasikan 5 pengguna dari satu sample_id terbaik.
+    Warna garis ditentukan oleh status QoS setiap pengguna.
 
-    :param satellite_count: Jumlah satelit (integer)
-    :param user_count: Jumlah pengguna (integer)
-    :param sample_data: Data sampel yang berisi informasi QoS dan hubungan antara pengguna dan satelit
+    :param satellite_count: Jumlah satelit dari konfigurasi tempat sampel terbaik ditemukan.
+    :param best_sample_row: Satu baris Series pandas yang berisi data sampel terbaik.
+    :param R_MIN: Nilai ambang batas rate.
     """
-    # Tentukan posisi acak untuk satelit dan pengguna
-    # Menggunakan seed untuk konsistensi jika diperlukan
+    USER_COUNT = 5  # Jumlah pengguna tetap 5
+    sample_id = best_sample_row.name
+    
+    print(f"\n🎨 Memulai visualisasi untuk 5 pengguna dari sample_id terbaik: {sample_id}")
+    print(f"   Pada konfigurasi {satellite_count} satelit.")
+
+    # Ambil array rate untuk 5 pengguna dari baris terbaik
+    rates_for_5_users = json.loads(best_sample_row['rate_per_ut'])
+
+    # Tentukan posisi acak yang konsisten
     np.random.seed(42)
-    x_sats = np.random.uniform(1, 10, size=satellite_count)  # Posisi X satelit
-    y_sats = np.random.uniform(1, 10, size=satellite_count)  # Posisi Y satelit
-
-    x_users = np.random.uniform(1, 10, size=user_count)  # Posisi X pengguna
-    y_users = np.random.uniform(1, 10, size=user_count)  # Posisi Y pengguna
+    x_sats = np.random.uniform(1, 10, size=satellite_count)
+    y_sats = np.random.uniform(1, 10, size=satellite_count)
+    x_users = np.random.uniform(1, 10, size=USER_COUNT)
+    y_users = np.random.uniform(1, 10, size=USER_COUNT)
 
     # Membuat plot
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.scatter(x_users, y_users, color='red', marker='o', s=100, label="Pengguna", edgecolors='black', zorder=10)
+    ax.scatter(x_sats, y_sats, color='blue', marker='^', s=150, label="Satelit", edgecolors='black', zorder=5)
 
-    # Plot satelit (segitiga biru)
-    ax.scatter(x_users, y_users, color='blue', marker='^', s=120, label="Satelit", edgecolors='black', zorder=5)
-    ax.scatter(x_sats, y_sats, color='green', marker='o', s=100, label="Pengguna", edgecolors='black', zorder=5)
+    # Loop untuk setiap 5 PENGGUNA
+    for i in range(USER_COUNT):
+        user_rate = rates_for_5_users[i]
+        
+        # Tentukan warna untuk PENGGUNA ini berdasarkan rate-nya
+        if user_rate >= R_MIN:
+            line_color = 'green'
+        else:
+            line_color = 'yellow'
+            
+        # Gambar garis dari pengguna ini ke SEMUA satelit dengan warna yang sudah ditentukan
+        for j in range(satellite_count):
+            ax.plot([x_users[i], x_sats[j]],
+                    [y_users[i], y_sats[j]],
+                    color=line_color,
+                    linewidth=1.5)
 
-    # Plot pengguna (lingkaran merah)
-    
-
-    # --- PERUBAHAN UTAMA ADA DI BAGIAN INI ---
-    # Menghubungkan pengguna hanya dengan satelit yang memenuhi QoS
-    for i in range(user_count):
-        # Ambil dan parse data rate_per_ut untuk pengguna ke-i
-        # Pastikan formatnya adalah list of floats
-        rate_per_ut = json.loads(sample_data['rate_per_ut'][i])
-
-        # Iterasi untuk setiap satelit
-        for j, rate in enumerate(rate_per_ut):
-            # HANYA gambar garis jika rate memenuhi syarat R_MIN
-            if rate >= R_MIN:
-                # Plot garis hijau antara pengguna dan satelit yang memenuhi syarat
-                ax.plot([x_users[i], x_sats[j]],
-                        [y_users[i], y_sats[j]],
-                        color='green',
-                        linewidth=1.5,
-                        linestyle='-')
-
-    # Pengaturan plot
-    ax.set_title("Visualisasi Koneksi Satelit dan Pengguna Berdasarkan QoS", fontsize=14)
+    # Pengaturan detail plot
+    ax.set_title(f"Visualisasi 5 Pengguna dari Sampel Terbaik (ID: {sample_id})", fontsize=16)
     ax.set_xlabel("Posisi X", fontsize=12)
     ax.set_ylabel("Posisi Y", fontsize=12)
-    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.grid(True, linestyle='--', alpha=0.7)
     ax.legend()
     ax.set_xlim(0, 11)
     ax.set_ylim(0, 11)
 
-    # Menampilkan plot dengan Streamlit
+    # Menampilkan plot
     st.pyplot(fig)
+    print("✅ Visualisasi selesai ditampilkan.")
 
 
 # ================================
@@ -338,33 +339,59 @@ def run_all_plots(model_results_dir, baseline_results_dir, raw_data_dir, r_min):
     plot_qos_comparison(model_results_dir, baseline_results_dir)
     plot_total_network_throughput(model_results_dir, baseline_results_dir)
     
-    # Variabel untuk menyimpan jumlah satelit terbaik
-    best_satellite_count = None
-    best_qos_count = 0
-    best_total_rate = 0
-    
-    # Melakukan loop untuk mencari jumlah satelit terbaik
-    for satellite_count in SATELLITE_LIST:  # Looping berdasarkan konfigurasi SATELLITE_LIST
-        print(f"📊 Menjalankan pengujian untuk {satellite_count} satelit...")
+    best_sample_row = None
+    best_sample_qos_count = -1
+    best_sample_rate_total = -1.0
+    best_sample_satellite_config = 0
 
-        # Ambil data sample yang berisi informasi QoS
-        sample_data = pd.read_csv(os.path.join(model_results_dir, f"test_result_{satellite_count}sat.csv"))  # Sesuaikan dengan data yang ada
-        qos_data = sample_data[['sample_id', 'rate_per_ut']]  # Ambil kolom yang relevan untuk rate_per_ut
+    print("--- Memulai Proses Analisis: Mencari sample_id terbaik dari semua file ---")
 
-        # Hitung jumlah pengguna dengan QoS terbaik (QoS = 1)
-        qos_count = sum([1 for rates in qos_data['rate_per_ut'] if any(rate >= R_MIN for rate in json.loads(rates))])
+    # Loop untuk setiap file konfigurasi satelit
+    for satellite_count in SATELLITE_LIST:
+        print(f"📊 Menganalisis file untuk {satellite_count} satelit...")
+        try:
+            file_path = os.path.join(model_results_dir, f"test_result_{satellite_count}sat.csv")
+            if not os.path.exists(file_path):
+                print(f"   -> ⚠️ File tidak ditemukan: {file_path}. Dilewati.")
+                continue
+                
+            sample_data = pd.read_csv(file_path)
 
-        # Hitung total rate untuk kriteria lainnya, misalnya:
-        total_rate = qos_count  # Total QoS terhubung, bisa disesuaikan sesuai kebutuhan
+            # Loop untuk setiap baris (sample_id) di dalam file saat ini
+            for index, row in sample_data.iterrows():
+                current_qos_count = row['qos_count']
+                current_rate_total = row['rate_total']
 
-        # Update jika jumlah satelit ini lebih baik
-        if qos_count > best_qos_count or (qos_count == best_qos_count and total_rate > best_total_rate):
-            best_qos_count = qos_count
-            best_total_rate = total_rate
-            best_satellite_count = satellite_count
+                # Logika perbandingan untuk menemukan baris terbaik
+                # Prioritas 1: qos_count tertinggi
+                if current_qos_count > best_sample_qos_count:
+                    best_sample_qos_count = current_qos_count
+                    best_sample_rate_total = current_rate_total
+                    best_sample_row = row
+                    best_sample_satellite_config = satellite_count
+                # Prioritas 2: Jika qos_count sama, cek rate_total
+                elif current_qos_count == best_sample_qos_count and current_rate_total > best_sample_rate_total:
+                    best_sample_rate_total = current_rate_total
+                    best_sample_row = row
+                    best_sample_satellite_config = satellite_count
 
-    print(f"🔑 Jumlah satelit terbaik adalah: {best_satellite_count} satelit dengan QoS = {best_qos_count}")
+        except Exception as e:
+            print(f"   -> ❌ Terjadi error saat memproses file untuk {satellite_count} satelit: {e}")
 
-    # Menjalankan plot untuk jumlah satelit terbaik
-    plot_satelite_vs_user(best_satellite_count, user_count, sample_data)
+    # --- Pemicu Visualisasi Setelah Semua File Dianalisis ---
+    print("\n--- Analisis Selesai ---")
+
+    if best_sample_row is not None:
+        print(f"🏆 Ditemukan sample_id terbaik di index: {best_sample_row.name}")
+        print(f"   -> Dari file konfigurasi: {best_sample_satellite_config} satelit")
+        print(f"   -> Dengan qos_count: {best_sample_qos_count} dan rate_total: {best_sample_rate_total:.2f}")
+
+        # Panggil fungsi plot dengan data baris terbaik yang sudah ditemukan
+        plot_5_users_from_best_sample(
+            satellite_count=best_sample_satellite_config,
+            best_sample_row=best_sample_row,
+            R_MIN=R_MIN
+        )
+    else:
+        print("❌ Tidak ada data sampel yang valid yang berhasil dianalisis untuk ditampilkan.")
 
